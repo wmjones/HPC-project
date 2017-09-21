@@ -1,3 +1,2 @@
-all : main.cpp
-	g++-7 -lstdc++ -fopenmp main.cpp -o program
-	./program
+all :
+	python2 main.py
