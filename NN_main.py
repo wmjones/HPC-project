@@ -1,6 +1,10 @@
 import numpy as np
 import tensorflow as tf
+from sklearn import datasets
+from sklearn.model_selection import train_test_split
 
+RANDOM_SEED = 42
+tf.set_random_seed(RANDOM_SEED)
 
 def generate_data(m, d):
     # generate an array for a grid of m equidistant points per dimension for the hypercube [0, 4pi]^d
