@@ -1,2 +1,3 @@
 all :
-	python2 main.py
+	python main.py
+	Rscript plotting.r
