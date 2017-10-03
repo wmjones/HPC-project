@@ -1,3 +1,7 @@
+list.of.packages <- c("rgl", "dplyr")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
 library(rgl)
 library(dplyr)
 mat1 <- matrix(c(.7, -.7, 0, 0,
@@ -32,6 +36,9 @@ color_pallet <- function(x){
 }
 v.colors <- unlist(sapply(data$v, color_pallet))
 
+par3d(windowRect = c(0, 0, 480, 480))
 plot3d(data$x, data$y, data$v, type="p", col=v.colors,
-           zlim=c(v.min, v.max), box=FALSE, xlab="", ylab="", zlab="", lit=FALSE)
-    rgl.viewpoint(scale=c(1, 1, 17/(v.max-v.min)), userMatrix=mat1)
+       zlim=c(v.min, v.max), box=FALSE, xlab="", ylab="", zlab="", lit=FALSE)
+
+## rgl.viewpoint(scale=c(1, 1, 1), userMatrix=mat1)
+## snapshot3d("plot.png")
