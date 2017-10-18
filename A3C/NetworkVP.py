@@ -17,21 +17,23 @@ class NetworkVP:
         with self.graph.as_default() as g:
             with tf.device(self.device):
                 self._create_graph()
-
-                self.sess = tf.Session(
-                    graph=self.graph,
-                    # to make it run on a few threads
-                    config=tf.ConfigProto(
+                # to make it run on a few threads
+                config = tf.ConfigProto(
                         intra_op_parallelism_threads=4,
                         inter_op_parallelism_threads=4
-                    )
-                    # config=tf.ConfigProto(
-                    #     allow_soft_placement=True,
-                    #     log_device_placement=False,
-                    #     gpu_options=tf.GPUOptions(allow_growth=True))
+                )
+                config.graph_options.optimizer_options.global_jit_level = tf.OptimizerOptions.ON_1
+                self.sess = tf.Session(
+                    graph=self.graph,
+                    config=config
                 )
                 self._create_tensor_board()
+                self.saver = tf.train.Saver()
                 self.sess.run(tf.global_variables_initializer())
+                latest_checkpoint = tf.train.latest_checkpoint("./checkpoint/")
+                if latest_checkpoint and Config.RESTORE:
+                    print("Restoring Parameters from latest checkpoint:")
+                    self.saver.restore(self.sess, latest_checkpoint)
 
     def _create_graph(self):
         self.x = tf.placeholder(tf.float32, shape=[None, self.d], name='X')
@@ -66,9 +68,12 @@ class NetworkVP:
         return prediction
 
     def train(self, x, y_r, trainer_id):
+        step = self.get_global_step()
         feed_dict = {self.x: x, self.y_r: y_r}
         summary, _ = self.sess.run([self.merged, self.train_opt], feed_dict=feed_dict)
-        self.log_writer.add_summary(summary, self.get_global_step())
+        self.log_writer.add_summary(summary, step)
+        if step % 1000 == 0:
+            self.saver.save(self.sess, "./checkpoint/model.ckpt")
 
     def _create_tensor_board(self):
         self.log_writer = tf.summary.FileWriter("logs/%s" % self.model_name + '%f' % time.time())
