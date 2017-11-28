@@ -1,15 +1,15 @@
 import numpy as np
 import tensorflow as tf
 import time
+import itertools
 
 from Config import Config
 
 
 class NetworkVP:
-    def __init__(self, device, model_name, d=2):
+    def __init__(self, device, model_name):
         self.device = device
         self.model_name = model_name
-        self.d = d
 
         self.learning_rate = Config.LEARNING_RATE
 
@@ -36,26 +36,52 @@ class NetworkVP:
                     self.saver.restore(self.sess, latest_checkpoint)
 
     def _create_graph(self):
-        self.x = tf.placeholder(tf.float32, shape=[None, self.d], name='X')
-        self.y_r = tf.placeholder(tf.float32, [None, 1], name='Yr')
-        tf.summary.scalar("batch_size", tf.shape(self.x)[0])
+        self.x = tf.placeholder(tf.float32, shape=[None, Config.NUM_OF_CUSTOMERS+1, 2], name='State')
+        self.sampled_cost = tf.placeholder(tf.float32, [None, 1], name='Sampled_Cost')
+        self.batch_size = tf.shape(self.x)[0]
+        tf.summary.scalar("batch_size", self.batch_size)
+
+        # tmp for random action
+        self.all_actions = []
+        for i in itertools.permutations(range(1, Config.NUM_OF_CUSTOMERS), Config.NUM_OF_CUSTOMERS-1):
+            route = np.zeros(Config.NUM_OF_CUSTOMERS+1, dtype=np.int32)
+            for j in range(len(i)):
+                route[j+1] = i[j]
+            self.all_actions.append(route)
+        self.all_actions = tf.convert_to_tensor(np.asarray(self.all_actions))
+
+        self.action = tf.gather(self.all_actions, tf.random_uniform(
+            dtype=tf.int32, minval=0, maxval=tf.shape(self.all_actions)[1], shape=[self.batch_size]))
 
         self.global_step = tf.Variable(0, trainable=False, name='step')
 
-        num_of_nodes = 10
-        actf = tf.nn.relu
-        self.hidden1 = tf.layers.dense(inputs=self.x, units=num_of_nodes, activation=actf, name="fc1")
-        self.hidden2 = tf.layers.dense(inputs=self.hidden1, units=num_of_nodes, activation=actf, name="fc2")
-        self.hidden3 = tf.layers.dense(inputs=self.hidden2, units=num_of_nodes, activation=actf, name="fc3")
-        self.hidden4 = tf.layers.dense(inputs=self.hidden3, units=num_of_nodes, activation=actf, name="fc4")
-        self.output = tf.layers.dense(inputs=self.hidden4, units=1, name="output")
+        self.keep_prob = tf.placeholder(tf.float32)
+        self.input_lengths = np.asarray([Config.NUM_OF_CUSTOMERS]*(self.batch_size))
 
-        with tf.name_scope("cost"):
-            self.cost = tf.losses.mean_squared_error(self.y_r, self.output)
-        tf.summary.scalar("cost", self.cost)
+        self.in_cells = []
+        for i in range(Config.LAYERS_STACKED_COUNT):
+            with tf.variable_scope('RNN_{}'.format(i)):
+                self.cell = tf.nn.rnn_cell.GRUCell(Config.RNN_HIDDEN_DIM)
+                self.cell = tf.nn.rnn_cell.DropoutWrapper(self.cell, output_keep_prob=self.keep_prob)
+                self.in_cells.append(self.cell)
+        self.in_cell = tf.nn.rnn_cell.MultiRNNCell(self.in_cells)
+        self.encoder_outputs, self.encoder_final_state = tf.nn.dynamic_rnn(self.in_cell,
+                                                                           self.x,
+                                                                           dtype=tf.float32)
+        self.dense_layer_input = tf.layers.flatten(tf.transpose(tf.convert_to_tensor(self.encoder_final_state), perm=[1, 0, 2]))
+        self.dense_layer = tf.layers.dense(
+            self.dense_layer_input,
+            Config.DNN_HIDDEN_DIM,
+            activation=tf.nn.relu)
+        self.base_line_est = tf.layers.dense(self.dense_layer, 1, activation=None)
+
+        with tf.name_scope("loss"):
+            self.base_line_loss = tf.reduce_mean(self.base_line_est - self.sampled_cost)
+        tf.summary.scalar("loss", self.base_line_loss)
+
         with tf.name_scope("train"):
-            self.opt = tf.train.AdamOptimizer(Config.LEARNING_RATE)
-            self.train_opt = self.opt.minimize(self.cost, global_step=self.global_step)
+            self.base_line_train = tf.train.AdamOptimizer(Config.LEARNING_RATE).\
+                                   minimize(self.base_line_loss, global_step=self.global_step)
 
         self.merged = tf.summary.merge_all()
 
@@ -64,13 +90,13 @@ class NetworkVP:
         return step
 
     def predict(self, x):
-        prediction = self.sess.run(self.output, feed_dict={self.x: x})
+        prediction = self.sess.run([self.action, self.base_line_est], feed_dict={self.x: x, self.keep_prob: .5})
         return prediction
 
-    def train(self, x, y_r, trainer_id):
+    def train(self, x, action, sampled_cost, trainer_id):
         step = self.get_global_step()
-        feed_dict = {self.x: x, self.y_r: y_r}
-        summary, _ = self.sess.run([self.merged, self.train_opt], feed_dict=feed_dict)
+        feed_dict = {self.x: x, self.sampled_cost: sampled_cost, self.keep_prob: .5}
+        summary, _ = self.sess.run([self.merged, self.base_line_train], feed_dict=feed_dict)
         self.log_writer.add_summary(summary, step)
         if step % 1000 == 0:
             self.saver.save(self.sess, "./checkpoint/model.ckpt")

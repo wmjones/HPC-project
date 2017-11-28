@@ -50,8 +50,8 @@ class Server:
         self.trainers[-1].join(0.1)
         self.trainers.pop()
 
-    def train_model(self, x__, r__, trainer_id):
-        self.model.train(x__, r__, trainer_id)
+    def train_model(self, x__, a__, r__, trainer_id):
+        self.model.train(x__, a__, r__, trainer_id)
         self.training_step += 1
 
     def main(self):

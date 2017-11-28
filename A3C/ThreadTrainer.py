@@ -17,15 +17,17 @@ class ThreadTrainer(Thread):
         while not self.exit_flag:
             batch_size = 0
             while batch_size <= Config.TRAINING_MIN_BATCH_SIZE:
-                x_, r_ = self.server.training_q.get()
+                x_, a_, r_ = self.server.training_q.get()
                 if batch_size == 0:
                     x__ = x_
+                    a__ = a_
                     r__ = r_
                 else:
                     x__ = np.vstack((x__, x_))
+                    a__ = np.vstack((a__, a_))
                     r__ = np.vstack((r__, r_))
                 batch_size += 1
-            self.server.train_model(x__, r__, self.id)
+            self.server.train_model(x__, a__, r__, self.id)
             #     print("state: ", x__)
             #     print("value: ", r__)
             #     self.exit_flag = True

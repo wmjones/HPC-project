@@ -4,7 +4,7 @@ import time
 import threading
 
 from Config import Config
-# from Environment import Environment
+from Environment import Environment
 # from Experience import Experience
 
 
@@ -16,7 +16,7 @@ class ProcessAgent(Process):
         self.prediction_q = prediction_q
         self.training_q = training_q
 
-        # self.env = Environment()  # not sure if this will change cause im not using a game
+        self.env = Environment()
         # self.num_actions = self.env.get_num_actions()
         # self.actions = np.arange(self.num_actions)
         self.wait_q = Queue(maxsize=1)
@@ -84,23 +84,21 @@ class ProcessAgent(Process):
 
     #         time_count += 1
 
+    def predict(self, state):
+        self.prediction_q.put((self.id, state))
+        a, v = self.wait_q.get()
+        return a, v
+
+    def run_episode(self):
+        self.env.reset()
+        action, base_line = self.predict(self.env.current_state)
+        sampled_value = self.env.G(action)
+        return action, base_line, sampled_value
+
     def run(self):
         np.random.seed(np.int32(time.time() % 1 * 1000 + self.id * 10))
 
         while self.exit_flag.value == 0:
-            # total_reward = 0
-            # total_length = 0
-            # for x_, r_, a_, reward_sum in self.run_episode():
-            #     total_reward += reward_sum
-            #     total_length += len(r_) + 1
-                # +1 for last frame that we drop (im not sure i will be doing that)
-            x_ = np.array([np.random.uniform(0, 1), np.random.uniform(0, 1)])
-            r_ = np.array([np.apply_along_axis(lambda x: sum(np.sin(x*4*np.pi)), 0, x_)])
-            self.training_q.put((x_, r_))
-            state = np.array([np.random.uniform(0, 1), np.random.uniform(0, 1)])
-            # print((self.id, state))
-
-            self.prediction_q.put((self.id, state))
-            pred = self.wait_q.get()
-            # print(state)
-            # print(pred)
+            a_, b_, r_ = self.run_episode()
+            x_ = self.env.current_state
+            self.training_q.put(([x_], [a_], [r_]))
